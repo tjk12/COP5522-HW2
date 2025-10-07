@@ -1,0 +1,204 @@
+Performance Testing Results
+Generated on: Tue Oct  7 11:39:53 CDT 2025
+=========================================
+
+Testing hw2-a (Full Matrix Multiplication)
+=========================================
+
+Matrix Size: 512 x 512
+-----------------------------------------
+Threads: 1
+Matrix Size: 512
+Elapsed Time: 0.000260 s
+Performance (Gflop/s): 2.017453
+Threads: 2
+Matrix Size: 512
+Elapsed Time: 0.000290 s
+Performance (Gflop/s): 1.806921
+Threads: 4
+Matrix Size: 512
+Elapsed Time: 0.000143 s
+Performance (Gflop/s): 3.671157
+Threads: 8
+Matrix Size: 512
+Elapsed Time: 0.000149 s
+Performance (Gflop/s): 3.518437
+Threads: 16
+Matrix Size: 512
+Elapsed Time: 0.000166 s
+Performance (Gflop/s): 3.154983
+Threads: 32
+Matrix Size: 512
+Elapsed Time: 0.000248 s
+Performance (Gflop/s): 2.112414
+
+Matrix Size: 1024 x 1024
+-----------------------------------------
+Threads: 1
+Matrix Size: 1024
+Elapsed Time: 0.001133 s
+Performance (Gflop/s): 1.851030
+Threads: 2
+Matrix Size: 1024
+Elapsed Time: 0.000901 s
+Performance (Gflop/s): 2.327009
+Threads: 4
+Matrix Size: 1024
+Elapsed Time: 0.000371 s
+Performance (Gflop/s): 5.649385
+Threads: 8
+Matrix Size: 1024
+Elapsed Time: 0.000557 s
+Performance (Gflop/s): 3.763840
+Threads: 16
+Matrix Size: 1024
+Elapsed Time: 0.000441 s
+Performance (Gflop/s): 4.754645
+Threads: 32
+Matrix Size: 1024
+Elapsed Time: 0.000529 s
+Performance (Gflop/s): 3.963990
+
+Matrix Size: 2048 x 2048
+-----------------------------------------
+Threads: 1
+Matrix Size: 2048
+Elapsed Time: 0.004657 s
+Performance (Gflop/s): 1.801371
+Threads: 2
+Matrix Size: 2048
+Elapsed Time: 0.002471 s
+Performance (Gflop/s): 3.395192
+Threads: 4
+Matrix Size: 2048
+Elapsed Time: 0.001929 s
+Performance (Gflop/s): 4.349119
+Threads: 8
+Matrix Size: 2048
+Elapsed Time: 0.001448 s
+Performance (Gflop/s): 5.793574
+Threads: 16
+Matrix Size: 2048
+Elapsed Time: 0.001540 s
+Performance (Gflop/s): 5.446497
+Threads: 32
+Matrix Size: 2048
+Elapsed Time: 0.001408 s
+Performance (Gflop/s): 5.957395
+
+Matrix Size: 4096 x 4096
+-----------------------------------------
+Threads: 1
+Matrix Size: 4096
+Elapsed Time: 0.019215 s
+Performance (Gflop/s): 1.746253
+Threads: 2
+Matrix Size: 4096
+Elapsed Time: 0.010018 s
+Performance (Gflop/s): 3.349377
+Threads: 4
+Matrix Size: 4096
+Elapsed Time: 0.006024 s
+Performance (Gflop/s): 5.570232
+Threads: 8
+Matrix Size: 4096
+Elapsed Time: 0.005707 s
+Performance (Gflop/s): 5.879496
+Threads: 16
+Matrix Size: 4096
+Elapsed Time: 0.005016 s
+Performance (Gflop/s): 6.689680
+Threads: 32
+Matrix Size: 4096
+Elapsed Time: 0.005048 s
+Performance (Gflop/s): 6.647026
+
+
+Testing hw2-b (Triangular Matrix Multiplication)
+=========================================
+
+Matrix Size: 512 x 512
+-----------------------------------------
+Threads: 1
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 2
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 4
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 8
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 16
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 32
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+
+Matrix Size: 1024 x 1024
+-----------------------------------------
+Threads: 1
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 2
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 4
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 8
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 16
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 32
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+
+Matrix Size: 2048 x 2048
+-----------------------------------------
+Threads: 1
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 2
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 4
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 8
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 16
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 32
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+
+Matrix Size: 4096 x 4096
+-----------------------------------------
+Threads: 1
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 2
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 4
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 8
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 16
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+Threads: 32
+Usage: ./hw2-b <matrix_dimension> <schedule_type>
+  schedule_type: static, dynamic, guided
+
+Testing complete! Results saved to perf_results.txt
