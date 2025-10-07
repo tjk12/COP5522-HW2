@@ -1,92 +1,91 @@
-# Makefile for OpenMP Matrix-Vector Multiplication Assignment (HW2) - C++ Version
+# Makefile for HW2 (Cross-Platform)
 
-# ---------------------------------
-#  OS-AWARE COMPILER CONFIGURATION
-# ---------------------------------
-# Use 'uname' to detect the operating system for compiler selection.
-UNAME_S := $(shell uname -s)
-
-# If the OS is Darwin (macOS), automatically find the latest Homebrew GCC.
-# Otherwise (e.g., on Linux), use the standard g++.
-ifeq ($(UNAME_S),Darwin)
-# --- macOS Compiler (Auto-detection) ---
-# This command finds the latest version of g++ installed by Homebrew.
-CXX := $(shell ls /usr/local/bin/g++-* 2>/dev/null | sort -V | tail -n 1)
-
-# --- NEW: Check if the compiler was found and provide a helpful error ---
-ifeq ($(strip $(CXX)),)
-$(error No Homebrew GCC compiler (g++-*) found in /usr/local/bin/. Please run 'brew install gcc' to install it, then try again.)
-endif
-else
-# --- Linux Compiler ---
+# --- Compiler and Flags ---
+# Default to g++ for Linux
 CXX = g++
+# Common flags: C++17, Wall for warnings, OpenMP support, lm for the math library
+COMMON_FLAGS = -std=c++17 -Wall -fopenmp -lm
+
+# --- OS Detection for Compiler Selection ---
+# Use 'uname -s' to check the operating system kernel name
+ifeq ($(shell uname -s), Darwin)
+# macOS: Find the latest Homebrew GCC compiler
+# The 'wildcard' function finds matching files, 'sort' gets the latest version.
+GCC_LIST := $(sort $(wildcard /usr/local/bin/g++-*))
+# Check if any GCC versions were found
+ifneq ($(GCC_LIST),)
+# Select the last one in the sorted list (latest version)
+CXX := $(lastword $(GCC_LIST))
+else
+# If no GCC found, stop with a helpful error message
+$(error No Homebrew GCC compiler (e.g., g++-13) found in /usr/local/bin/. Please install it with 'brew install gcc'.)
+endif
 endif
 
-# Common C++ flags: C++17 standard, high optimization, show all warnings, enable OpenMP.
-# -march=native enables all instruction sets supported by the local machine.
-# -mavx2 and -mfma are added for explicit compatibility and performance.
-CXXFLAGS = -std=c++17 -O3 -Wall -fopenmp -march=native -mavx2 -mfma
+# --- Experimental Optimization Profiles ---
+# These flags are appended to COMMON_FLAGS based on the make target
+OPT_O3 = -O3 -march=native -mavx2 -mfma
+OPT_O2 = -O2 -march=native -mavx2 -mfma
+OPT_UNROLL = -O3 -march=native -mavx2 -mfma -funroll-loops
 
-# Linker flags (e.g., for math library)
-LDFLAGS = -lm
+# --- File Definitions ---
+TARGET_A = hw2-a
+TARGET_B = hw2-b
+SRC_A = hw2-a.cpp
+SRC_B = hw2-b.cpp
+TARGETS = $(TARGET_A) $(TARGET_B)
 
-# ---------------------------------
-#         FILE DEFINITIONS
-# ---------------------------------
-# Define executables
-TARGETS = hw2-a hw2-b
+# --- Build Rules ---
+.PHONY: all all-O3 all-O2 all-unroll clean test help
 
-# ---------------------------------
-#           BUILD RULES
-# ---------------------------------
-# Phony targets are not files.
-.PHONY: all clean test run
+# Default target: build with -O3 optimizations
+all: all-O3
 
-# Default target: 'make' or 'make all' will build both executables.
-all: $(TARGETS)
+# Build with -O3 (default)
+all-O3: CXXFLAGS = $(COMMON_FLAGS) $(OPT_O3)
+all-O3: $(TARGETS)
 
-# Rule to build the dense matrix executable from the C++ source
-hw2-a: hw2-a.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
-	@echo "Built dense matrix executable using '$(CXX)': ./hw2-a <size>"
+# Build with -O2
+all-O2: CXXFLAGS = $(COMMON_FLAGS) $(OPT_O2)
+all-O2: $(TARGETS)
 
-# Rule to build the triangular matrix executable from C++ source
-hw2-b: hw2-b.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
-	@echo "Built triangular matrix executable using '$(CXX)': ./hw2-b <size> <schedule>"
+# Build with -O3 and unrolling
+all-unroll: CXXFLAGS = $(COMMON_FLAGS) $(OPT_UNROLL)
+all-unroll: $(TARGETS)
 
+# Generic rule to build the executables
+# Use a TAB character for indentation on the command lines below
+$(TARGET_A): $(SRC_A)
+	@echo "Building '$@' with flags: $(CXXFLAGS)"
+	$(CXX) $(CXXFLAGS) -o $@ $<
 
-# ---------------------------------
-#        TESTING & RUNNING
-# ---------------------------------
-# 'make test' runs a quick check with small inputs
+$(TARGET_B): $(SRC_B)
+	@echo "Building '$@' with flags: $(CXXFLAGS)"
+	$(CXX) $(CXXFLAGS) -o $@ $<
+
+# --- Testing ---
 test: all
-	@echo "\n--- Running Quick Test (N=1024, 4 Threads) ---"
-	@export OMP_NUM_THREADS=4 && echo "Running hw2-a (dense, C++)..." && ./hw2-a 1024
-	@export OMP_NUM_THREADS=4 && echo "\nRunning hw2-b (triangular, C++)..." && ./hw2-b 1024 guided
-	@echo "\n--- Quick Test Complete ---"
+	@echo "\n--- Running Quick Tests (N=1024, T=4) ---"
+	OMP_NUM_THREADS=4 ./$(TARGET_A) 1024
+	OMP_NUM_THREADS=4 ./$(TARGET_B) 1024 static
 
-# 'make run' executes the full benchmark script
-run: all
-	@echo "Running full benchmark script..."
-	@chmod +x run_benchmarks.sh
-	@./run_benchmarks.sh
-
-# ---------------------------------
-#            CLEANUP
-# ---------------------------------
-# 'make clean' removes all generated files
+# --- Cleanup ---
 clean:
 	@echo "Cleaning up generated files..."
-	rm -f $(TARGETS) *.o results.json hw2.pdf *.png
+	rm -f $(TARGETS) *.o
 
-# ---------------------------------
-#              HELP
-# ---------------------------------
+# --- Help ---
 help:
-	@echo "Available targets:"
-	@echo "  all    - Build both hw2-a and hw2-b executables from C++ sources"
-	@echo "  test   - Run a small test case for both programs"
-	@echo "  run    - Run the full benchmark script to generate results.json"
-	@echo "  clean  - Remove all compiled files and generated reports"
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Main Targets:"
+	@echo "  all           Builds both executables with default -O3 optimizations (same as 'make all-O3')."
+	@echo "  clean         Removes all compiled executables."
+	@echo "  test          Runs a quick test with both executables."
+	@echo "  help          Shows this help message."
+	@echo ""
+	@echo "Experimental Optimization Targets:"
+	@echo "  all-O3        Builds using -O3, AVX2, and FMA flags."
+	@echo "  all-O2        Builds using -O2, AVX2, and FMA flags."
+	@echo "  all-unroll    Builds using -O3, AVX2, FMA, and -funroll-loops."
 

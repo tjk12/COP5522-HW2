@@ -11,57 +11,40 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
-#include <cstdlib> // For atoi
+#include <cstdlib>
+#include <string>
+#include <cstring>
+#include <omp.h>
 
-// Utility function to get current time in seconds using C++ chrono
-double get_time() {
+// --- Helper Functions ---
+double microtime() {
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
-    // Using duration<double> to get seconds with fractional part
-    return std::chrono::duration<double>(duration).count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
 }
 
-/**
- * @brief Initializes a dense matrix A and a vector B.
- * @param A The matrix (passed by reference).
- * @param B The vector (passed by reference).
- * @param n The dimension of the matrix and vector.
- */
-void init_data(std::vector<float>& A, std::vector<float>& B, int n) {
-    for (int i = 0; i < n; i++) {
-        B[i] = 1.0f / (i + 2.0f);
-        for (int j = 0; j < n; j++) {
-            A[i * n + j] = 1.0f / (i + j + 2.0f);
-        }
-    }
+void print_usage(const char* prog_name) {
+    std::cerr << "USAGE: " << prog_name << " <Matrix-Dimension>" << std::endl;
 }
 
-/**
- * @brief Performs dense matrix-vector multiplication C = A * B.
- * The outer loop over rows 'i' is parallelized with OpenMP.
- * @param A The input matrix.
- * @param B The input vector.
- * @param C The output vector.
- * @param n The dimension of the matrix and vector.
- */
-void mat_vec_mult(const std::vector<float>& A, const std::vector<float>& B, std::vector<float>& C, int n) {
-    // Parallelize the loop over rows. Each thread handles a distinct set of rows,
-    // so there are no race conditions when writing to the output vector C.
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        float sum = 0.0f;
-        // This inner loop is a dot product for the i-th row of A and vector B.
-        // It should be efficiently vectorized by the compiler.
-        for (int j = 0; j < n; j++) {
-            sum += A[i * n + j] * B[j];
+// --- Matrix-Vector Multiplication (Dense) ---
+void MatVecMult(int n, const std::vector<float>& A, const std::vector<float>& B, std::vector<float>& C) {
+    // Initialize C to all zeros
+    std::fill(C.begin(), C.end(), 0.0f);
+
+    // Parallelize the outer loop using OpenMP.
+    // The k-i loop order is preserved from your Mv.cpp for cache efficiency.
+    #pragma omp parallel for schedule(static)
+    for (int k = 0; k < n; k++) {
+        for (int i = 0; i < n; i++) {
+            C[i] += A[i * n + k] * B[k];
         }
-        C[i] = sum;
     }
 }
 
 int main(int argc, char **argv) {
     if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <matrix_dimension>" << std::endl;
+        print_usage(argv[0]);
         return 1;
     }
 
@@ -71,33 +54,32 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // Allocate memory using std::vector. It handles allocation and deallocation automatically.
     std::vector<float> A(n * n);
     std::vector<float> B(n);
     std::vector<float> C(n);
 
-    // Initialize data
-    init_data(A, B, n);
+    // Initialize matrices A and B (vector)
+    for (int i = 0; i < n; i++) {
+        B[i] = 1.0f / (i + 2.0f);
+        for (int j = 0; j < n; j++) {
+            A[i * n + j] = 1.0f / (i + j + 2.0f);
+        }
+    }
 
-    // Warm-up run to stabilize system performance
-    mat_vec_mult(A, B, C, n);
+    // Warm-up run to stabilize CPU frequency and cache
+    MatVecMult(n, A, B, C);
 
-    // Timed run
-    double start_time = get_time();
-    mat_vec_mult(A, B, C, n);
-    double end_time = get_time();
+    double time1 = microtime();
+    MatVecMult(n, A, B, C);
+    double time2 = microtime();
 
-    double elapsed_time = end_time - start_time;
-    
-    // Calculate Gflop/s
-    // For a dense matrix, flops = 2 * n * n (n multiplications and n additions per row)
-    long long flops = 2LL * n * n;
-    double gflops = (double)flops / (elapsed_time * 1e9);
+    double elapsed_us = time2 - time1;
+    double gflops = (2.0 * n * n) / (elapsed_us * 1e3);
 
-    // std::cout is the C++ equivalent of printf
-    std::cout << "Matrix Size: " << n << std::endl;
-    std::cout << "Elapsed Time: " << std::fixed << elapsed_time << " s" << std::endl;
-    std::cout << "Performance (Gflop/s): " << std::fixed << gflops << std::endl;
+    std::cout << "Matrix Size: " << n << "x" << n << std::endl;
+    std::cout << "Threads used: " << omp_get_max_threads() << std::endl;
+    std::cout << "Time: " << elapsed_us << " us" << std::endl;
+    std::cout << "Performance (Gflop/s): " << gflops << std::endl;
 
     return 0;
 }

@@ -1,70 +1,67 @@
-Assignment 2 - Development Log
-================================
+Development Log: HW2 OpenMP Parallelization
+Name: Trever Knie
 
-Student: [Your Name]
-Date: [Date]
+Oct 3, 2025: Project Scaffolding and C-to-C++ Migration
 
-Project Overview:
------------------
-This assignment implements parallel matrix-vector multiplication using OpenMP,
-including optimizations for both dense (hw2-a) and triangular (hw2-b) matrices.
+Initial versions of hw2-a and hw2-b were created in C, following the prompt.
 
-Development Timeline:
----------------------
+A decision was made to migrate the project to C++ to leverage modern features like std::vector for safer memory management and std::chrono for more reliable timing, maintaining consistency with the approach from HW1.
 
-Day 1: Initial Setup and Sequential Optimization
-- Started with Assignment 1 code as baseline
-- Integrated AVX2 SIMD instructions for vectorization
-- Achieved single-core performance of [X] Gflop/s on n=[size]
+Established the initial cross-platform makefile, designed to work on both macOS (Darwin) and Linux systems by detecting the OS and selecting the appropriate GCC compiler.
 
-Day 2: OpenMP Parallelization (hw2-a)
-- Added OpenMP parallel for directives
-- Tested with different thread counts (1, 2, 4, 8, 16, 32)
-- Best performance: [X] Gflop/s with [Y] threads on n=[size]
+Oct 4, 2025: Makefile Debugging and Refinement on macOS
 
-Day 3: Triangular Matrix Implementation (hw2-b)
-- Modified initialization to create lower triangular matrix (Aij = 0 if j > i)
-- Implemented optimization to skip multiplication by zero
-- Reduced computation from N^2 to N*(N+1)/2 operations
+Problem: The initial make command on macOS failed because the system's default g++ is an alias for clang, which does not support the -fopenmp flag.
 
-Day 4: Scheduling Strategy Testing
-- Tested static scheduling: [results]
-- Tested dynamic scheduling: [results]
-- Tested dynamic with various chunk sizes: [results]
-- Tested guided scheduling: [results]
-- Selected [strategy] as optimal based on performance
+Solution: The makefile was updated to explicitly look for a versioned GCC compiler installed via Homebrew (e.g., g++-13).
 
-Day 5: Performance Analysis and Report
-- Conducted weak scaling tests (fixed work per thread)
-- Conducted strong scaling tests (fixed total work)
-- Generated performance graphs
-- Documented results in hw2.pdf
+Problem: The makefile failed again when a specific GCC version was not found, leading to a confusing secondary error.
 
-AI Tool Usage:
---------------
+Solution: The makefile logic was significantly improved to automatically detect the latest installed Homebrew GCC version. It now also includes robust error handling that stops the build and provides clear instructions if no compatible compiler is found.
 
-Tools Used:
-1. Claude AI (Anthropic) - Code assistance and debugging
-2. [Other tools if applicable]
+Problem: Encountered a make syntax error ("commands commence before first target") due to improper use of tab characters in conditional logic.
 
-What Worked Well:
-- AI helped quickly generate OpenMP parallel structures
-- Provided good explanations of different scheduling strategies
-- Assisted with AVX2 intrinsics syntax
-- Helped debug race conditions and memory access patterns
+Solution: Corrected the makefile syntax by removing leading tabs from all non-command lines, ensuring only shell commands are indented.
 
-What Fell Short:
-- Initial suggestions didn't account for cache effects properly
-- Had to manually tune chunk sizes through experimentation
-- Some compiler flag suggestions were suboptimal
-- Required manual verification of correctness
+Oct 6, 2025: Benchmarking and Reporting Workflow
 
-Impact on Development:
-- Accelerated initial implementation by ~40%
-- Reduced debugging time for OpenMP-specific issues
-- Still required deep understanding of parallel computing concepts
-- Human insight crucial for performance tuning decisions
+Developed a comprehensive run_benchmarks.sh script to automate all required tests: general performance sweeps for both executables, dedicated strong scaling tests, and dedicated weak scaling tests.
 
-Key Optimizations Implemented:
--------------------------------
-1. AVX2 SIMD vectorization (8 floats at a time
+Implemented a data pipeline where the shell script outputs performance results to a structured results.json file.
+
+Created a Python script (create_report.py) to parse the JSON file, generate plots with Matplotlib, and create the final hw2.pdf report using the FPDF library.
+
+Debugged a critical data parsing bug in the shell script where it was incorrectly capturing the text "(Gflop/s):" instead of the numerical value for hw2-a. The parsing logic was made more robust to handle output from both executables correctly.
+
+Problem: The Python script failed on the target system (Bridges-2) with an AttributeError: 'FPDF' object has no attribute 'table'.
+
+Solution: Diagnosed this as an environment issue where the system had an older version of the fpdf library. The Python script was refactored to build the report tables manually using the more fundamental .cell() method, ensuring compatibility.
+
+Oct 7, 2025: Finalization and Alignment with HW1
+
+Reviewed and updated hw2-a.cpp to ensure its core logic was a direct parallelization of the Mv.cpp code from HW1, fulfilling the assignment's starting-point requirement.
+
+Enhanced the makefile by adding experimental build targets (make all-O2, make all-unroll) to easily test the impact of different compiler optimizations, directly addressing the feedback from HW1.
+
+Added a help section to the makefile for improved usability.
+
+Conducted a final review of all components to ensure they meet every requirement in the assignment prompt.
+
+Reflection on AI Tool Usage
+For this assignment, AI tools were integral to the entire development lifecycle, acting as a collaborative partner for coding, debugging, and workflow automation.
+
+What they were useful for:
+
+Rapid Prototyping: The AI was exceptionally effective at generating the initial C++ boilerplate for hw2-a and hw2-b, including argument parsing, matrix initialization, and timing code. It also quickly converted the initial C code to modern C++.
+
+Complex Scripting: The AI wrote the sophisticated run_benchmarks.sh and create_report.py scripts. This was a significant productivity boost, as it handled the complex logic for JSON generation, data parsing, process execution, and PDF creation, which would have been time-consuming to write from scratch.
+
+Platform-Specific Debugging: The AI was invaluable for diagnosing the series of macOS-specific compilation issues. It correctly identified the clang vs. gcc problem and suggested the Homebrew-based solution. When subsequent make errors occurred, it could interpret the cryptic messages and provide the correct fix.
+
+API and Versioning Knowledge: When the fpdf library failed, the AI correctly diagnosed the problem as a likely version incompatibility and provided the alternative, more compatible code using the .cell() method.
+
+Where they fell short:
+
+Environmental Assumptions: The AI's primary weakness was its lack of awareness of the specific target environment (Bridges-2). It initially generated a Python script using a modern, convenient library feature (.table()) that was not available on the older software stack of the target machine. This highlights that the developer's environmental knowledge is crucial for guiding the AI.
+
+Overly Simplistic Initial Solutions: The first version of the makefile's OS detection logic was functional but not robust. It required several iterative debugging cycles, guided by my feedback, to handle edge cases like a missing compiler gracefully.
