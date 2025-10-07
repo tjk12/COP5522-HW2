@@ -17,108 +17,106 @@
 #include <string>
 #include <cstring>
 #include <omp.h>
-#include <cmath>
-#include <algorithm>
 
 using namespace std;
 
-// Forward declaration
-void Mv_mult_openmp(int n, const vector<double>& A, const vector<double>& B, vector<double>& C, const string& schedule_type);
-
-// --- Timing and Utility Functions ---
+// Helper function to get current time in microseconds
 double microtime() {
-    return chrono::duration_cast<chrono::microseconds>(
-        chrono::high_resolution_clock::now().time_since_epoch()
-    ).count();
+    auto now = chrono::high_resolution_clock::now();
+    auto duration = now.time_since_epoch();
+    return chrono::duration_cast<chrono::microseconds>(duration).count();
 }
 
-void print_usage(const char* prog_name) {
-    cerr << "Usage: " << prog_name << " <matrix_size_n> [schedule_type]" << endl;
-    cerr << "  <schedule_type> is optional. Options: static, dynamic, guided. Defaults to guided." << endl;
-}
+void mat_vec_mult_triangular(int n, const vector<float>& A, const vector<float>& B, vector<float>& C) {
+    // A temporary vector for each thread to accumulate results, preventing false sharing
+    vector<float> C_local(C.size(), 0.0f);
 
-// --- Main Logic ---
-int main(int argc, char **argv) {
-    if (argc < 2 || argc > 3) {
-        print_usage(argv[0]);
-        return 1;
+    #pragma omp parallel for schedule(runtime)
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            C_local[i] += A[i * n + j] * B[j];
+        }
     }
 
-    int n = atoi(argv[1]);
+    // Reduction: combine the results from local copies into the final vector C
+    // This part is sequential but fast
+    fill(C.begin(), C.end(), 0.0f);
+    for (size_t i = 0; i < C.size(); ++i) {
+        C[i] = C_local[i];
+    }
+}
+
+
+int main(int argc, char **argv) {
+    int n;
+    string schedule_type;
+
+    // Handle command line arguments to allow for a default schedule
+    if (argc == 2) {
+        n = atoi(argv[1]);
+        schedule_type = "static"; // Default schedule if only size is provided
+    } else if (argc == 3) {
+        n = atoi(argv[1]);
+        schedule_type = argv[2];
+    } else {
+        cerr << "Usage: " << argv[0] << " <matrix_size_n> [schedule]" << endl;
+        cerr << "  [schedule] is optional and defaults to 'static'." << endl;
+        cerr << "  Available schedules: static, dynamic, guided" << endl;
+        return 1;
+    }
+    
     if (n <= 0) {
         cerr << "Error: Matrix size must be a positive integer." << endl;
         return 1;
     }
 
-    string schedule_type = "guided"; // Default schedule
-    if (argc == 3) {
-        schedule_type = argv[2];
-        if (schedule_type != "static" && schedule_type != "dynamic" && schedule_type != "guided") {
-            cerr << "Error: Invalid schedule type '" << schedule_type << "'." << endl;
-            print_usage(argv[0]);
-            return 1;
-        }
+    // Set the OMP schedule type from the command line argument
+    if (schedule_type == "static") {
+        omp_set_schedule(omp_sched_static, 0);
+    } else if (schedule_type == "dynamic") {
+        omp_set_schedule(omp_sched_dynamic, 0);
+    } else if (schedule_type == "guided") {
+        omp_set_schedule(omp_sched_guided, 0);
+    } else {
+        cerr << "Error: Invalid schedule type '" << schedule_type << "'." << endl;
+        return 1;
     }
-    
-    vector<double> A(n * n), B(n), C(n);
 
-    // Initialize as a lower-triangular matrix
-    #pragma omp parallel for
+    // Allocate matrices
+    vector<float> A(n * n, 0.0f), B(n), C(n);
+
+    // Initialize as a lower triangular matrix
     for (int i = 0; i < n; ++i) {
-        B[i] = 1.0 / (i + 2.0);
-        for (int j = 0; j < n; ++j) {
-            if (j <= i) {
-                A[i * n + j] = 1.0 / (i + j + 2.0);
-            } else {
-                A[i * n + j] = 0.0;
-            }
+        B[i] = 1.0f / (i + 2.0f);
+        for (int j = 0; j <= i; ++j) {
+            A[i * n + j] = 1.0f / (i + j + 2.0f);
         }
     }
 
+    // Warm-up run
+    mat_vec_mult_triangular(n, A, B, C);
+
+    // Timed run
     double time1 = microtime();
-    Mv_mult_openmp(n, A, B, C, schedule_type);
+    mat_vec_mult_triangular(n, A, B, C);
     double time2 = microtime();
 
-    double elapsed_us = time2 - time1;
-    double gflops = (2.0 * n * (n + 1.0) / 2.0) / (elapsed_us * 1e3);
+    double elapsed_time_us = time2 - time1;
+    double elapsed_time_sec = elapsed_time_us / 1e6;
 
-    cout << "Threads: " << omp_get_max_threads() << ", N: " << n 
-         << ", Schedule: " << schedule_type
-         << ", Time: " << elapsed_us / 1e6 << " s"
-         << ", Performance: " << gflops << " Gflop/s" << endl;
+    // Calculate performance in Gflop/s
+    double gflops = 0.0;
+    // FIX: Add a safety check to prevent division by zero
+    if (elapsed_time_sec > 0.0) {
+        // Total flops for triangular matrix is n*(n+1)
+        double total_flops = (double)n * (n + 1);
+        gflops = total_flops / (elapsed_time_sec * 1e9);
+    }
+
+    cout << "Execution Time: " << elapsed_time_us << " us" << endl;
+    cout << "Matrix Size: " << n << "x" << n << ", Schedule: " << schedule_type << endl;
+    cout << "Threads used: " << omp_get_max_threads() << endl;
+    cout << "Performance (Gflop/s): " << gflops << endl;
 
     return 0;
 }
-
-void Mv_mult_openmp(int n, const vector<double>& A, const vector<double>& B, vector<double>& C, const string& schedule_type) {
-    // Set the schedule based on the input string
-    if (schedule_type == "static") {
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < n; ++i) {
-            double sum = 0.0;
-            for (int j = 0; j <= i; ++j) { // Important: only loop to i
-                sum += A[i * n + j] * B[j];
-            }
-            C[i] = sum;
-        }
-    } else if (schedule_type == "dynamic") {
-        #pragma omp parallel for schedule(dynamic)
-        for (int i = 0; i < n; ++i) {
-            double sum = 0.0;
-            for (int j = 0; j <= i; ++j) {
-                sum += A[i * n + j] * B[j];
-            }
-            C[i] = sum;
-        }
-    } else { // default to guided
-        #pragma omp parallel for schedule(guided)
-        for (int i = 0; i < n; ++i) {
-            double sum = 0.0;
-            for (int j = 0; j <= i; ++j) {
-                sum += A[i * n + j] * B[j];
-            }
-            C[i] = sum;
-        }
-    }
-}
-

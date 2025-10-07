@@ -16,27 +16,25 @@
 #include <cstring>
 #include <omp.h>
 
-// --- Helper Functions ---
+using namespace std;
+
+// Helper function to get current time in microseconds
 double microtime() {
-    auto now = std::chrono::high_resolution_clock::now();
+    auto now = chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    return chrono::duration_cast<chrono::microseconds>(duration).count();
 }
 
-void print_usage(const char* prog_name) {
-    std::cerr << "USAGE: " << prog_name << " <Matrix-Dimension>" << std::endl;
-}
+// Main logic for dense matrix-vector multiplication
+void mat_vec_mult(int n, const vector<float>& A, const vector<float>& B, vector<float>& C) {
+    // Initialize C to zeros
+    fill(C.begin(), C.end(), 0.0f);
 
-// --- Matrix-Vector Multiplication (Dense) ---
-void MatVecMult(int n, const std::vector<float>& A, const std::vector<float>& B, std::vector<float>& C) {
-    // Initialize C to all zeros
-    std::fill(C.begin(), C.end(), 0.0f);
-
-    // Parallelize the outer loop using OpenMP.
-    // The k-i loop order is preserved from your Mv.cpp for cache efficiency.
+    // Using i-k loop order for cache-friendly sequential access to A and B.
+    // This is the key change to improve performance significantly.
     #pragma omp parallel for schedule(static)
-    for (int k = 0; k < n; k++) {
-        for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; ++i) {
+        for (int k = 0; k < n; ++k) {
             C[i] += A[i * n + k] * B[k];
         }
     }
@@ -44,42 +42,47 @@ void MatVecMult(int n, const std::vector<float>& A, const std::vector<float>& B,
 
 int main(int argc, char **argv) {
     if (argc != 2) {
-        print_usage(argv[0]);
+        cerr << "Usage: " << argv[0] << " <matrix_size_n>" << endl;
         return 1;
     }
 
     int n = atoi(argv[1]);
     if (n <= 0) {
-        std::cerr << "Error: Matrix dimension must be a positive integer." << std::endl;
+        cerr << "Error: Matrix size must be a positive integer." << endl;
         return 1;
     }
 
-    std::vector<float> A(n * n);
-    std::vector<float> B(n);
-    std::vector<float> C(n);
-
-    // Initialize matrices A and B (vector)
-    for (int i = 0; i < n; i++) {
+    // Allocate and initialize matrices
+    vector<float> A(n * n), B(n), C(n);
+    for (int i = 0; i < n; ++i) {
         B[i] = 1.0f / (i + 2.0f);
-        for (int j = 0; j < n; j++) {
+        for (int j = 0; j < n; ++j) {
             A[i * n + j] = 1.0f / (i + j + 2.0f);
         }
     }
 
     // Warm-up run to stabilize CPU frequency and cache
-    MatVecMult(n, A, B, C);
+    mat_vec_mult(n, A, B, C);
 
+    // Timed run
     double time1 = microtime();
-    MatVecMult(n, A, B, C);
+    mat_vec_mult(n, A, B, C);
     double time2 = microtime();
 
-    double elapsed_us = time2 - time1;
-    double gflops = (2.0 * n * n) / (elapsed_us * 1e3);
+    double elapsed_time_us = time2 - time1;
+    double elapsed_time_sec = elapsed_time_us / 1e6;
 
-    std::cout << "Matrix Size: " << n << "x" << n << std::endl;
-    std::cout << "Threads used: " << omp_get_max_threads() << std::endl;
-    std::cout << "Time: " << elapsed_us << " us" << std::endl;
-    std::cout << "Performance (Gflop/s): " << gflops << std::endl;
+    // Calculate performance in Gflop/s
+    double gflops = 0.0;
+    if (elapsed_time_sec > 0.0) {
+        double total_flops = 2.0 * n * n; // n*n additions and n*n multiplications
+        gflops = total_flops / (elapsed_time_sec * 1e9);
+    }
+    
+    cout << "Execution Time: " << elapsed_time_us << " us" << endl;
+    cout << "Matrix Size: " << n << "x" << n << endl;
+    cout << "Threads used: " << omp_get_max_threads() << endl;
+    cout << "Performance (Gflop/s): " << gflops << endl;
 
     return 0;
 }

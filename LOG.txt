@@ -1,67 +1,35 @@
 Development Log: HW2 OpenMP Parallelization
 Name: Trever Knie
 
-Oct 3, 2025: Project Scaffolding and C-to-C++ Migration
+October 3, 2025: Project Kickoff and Initial Implementation
+Began the assignment by creating OpenMP-parallelized versions of the dense (hw2-a) and triangular (hw2-b) matrix-vector multiplication algorithms in C++, evolving the code from HW1.
 
-Initial versions of hw2-a and hw2-b were created in C, following the prompt.
+Developed a cross-platform Makefile to handle compilation on both macOS (using a Homebrew-installed GCC) and standard Linux systems. The makefile was designed to automatically detect the operating system and the latest available GCC compiler.
 
-A decision was made to migrate the project to C++ to leverage modern features like std::vector for safer memory management and std::chrono for more reliable timing, maintaining consistency with the approach from HW1.
+Established a core automation workflow with a run_benchmarks.sh script to execute tests and a create_report.py script to parse the results and generate a preliminary PDF.
 
-Established the initial cross-platform makefile, designed to work on both macOS (Darwin) and Linux systems by detecting the OS and selecting the appropriate GCC compiler.
+Worked through several iterations to debug the Makefile for macOS, addressing issues with clang's lack of OpenMP support, locating the correct Homebrew GCC compiler, and fixing make-specific syntax errors (tabs vs. spaces).
 
-Oct 4, 2025: Makefile Debugging and Refinement on macOS
+October 4, 2025: Performance Tuning and Data Integrity
+Corrected a major performance bottleneck in the dense matrix multiplication (hw2-a.cpp). The initial cache-unfriendly k-i loop order was replaced with a sequential i-k order, resulting in a significant increase in measured Gflop/s.
 
-Problem: The initial make command on macOS failed because the system's default g++ is an alias for clang, which does not support the -fopenmp flag.
+Identified and fixed a critical data pipeline bug where fast-running computations led to division-by-zero errors when calculating Gflop/s. Added safety checks to the C++ code to handle these cases, preventing corrupted data in the results.json file.
 
-Solution: The makefile was updated to explicitly look for a versioned GCC compiler installed via Homebrew (e.g., g++-13).
+October 5, 2025: Advanced Benchmarking and Reporting
+Enhanced the run_benchmarks.sh script to automate the testing of multiple compiler optimization profiles (-O2, -O3, -O3 -funroll-loops), as well as the different OpenMP scheduling strategies for hw2-b.
 
-Problem: The makefile failed again when a specific GCC version was not found, leading to a confusing secondary error.
+Rewrote the create_report.py script to handle the more complex nested JSON output. Implemented logic to generate a comparison table that highlights the best-performing compiler flag for each matrix size.
 
-Solution: The makefile logic was significantly improved to automatically detect the latest installed Homebrew GCC version. It now also includes robust error handling that stops the build and provides clear instructions if no compatible compiler is found.
+October 6, 2025: Data Visualization and Analysis
+Improved the scaling graphs by plotting the performance of both hw2-a and hw2-b together for direct comparison. Added a dashed "Ideal Linear Scaling" line to provide a clear theoretical baseline for evaluating the real-world results.
 
-Problem: Encountered a make syntax error ("commands commence before first target") due to improper use of tab characters in conditional logic.
+Added sections to the PDF report that provide textual analysis and insights into the strong and weak scaling graphs, explaining concepts like Amdahl's Law and parallel overhead.
 
-Solution: Corrected the makefile syntax by removing leading tabs from all non-command lines, ensuring only shell commands are indented.
+Corrected the analysis text to accurately describe ideal weak scaling as linear Gflop/s growth, not flat.
 
-Oct 6, 2025: Benchmarking and Reporting Workflow
+October 7, 2025: Finalization and Submission Packaging
+Refactored hw2-b.cpp to accept one or two command-line arguments, ensuring it could be run identically to the HW1 executable for compatibility with grading scripts, while retaining its advanced testing features.
 
-Developed a comprehensive run_benchmarks.sh script to automate all required tests: general performance sweeps for both executables, dedicated strong scaling tests, and dedicated weak scaling tests.
+Integrated a function into the create_report.py script to automatically create a hw2.tar archive containing all required source files, the Makefile, the final PDF report, and this log, streamlining the submission process.
 
-Implemented a data pipeline where the shell script outputs performance results to a structured results.json file.
-
-Created a Python script (create_report.py) to parse the JSON file, generate plots with Matplotlib, and create the final hw2.pdf report using the FPDF library.
-
-Debugged a critical data parsing bug in the shell script where it was incorrectly capturing the text "(Gflop/s):" instead of the numerical value for hw2-a. The parsing logic was made more robust to handle output from both executables correctly.
-
-Problem: The Python script failed on the target system (Bridges-2) with an AttributeError: 'FPDF' object has no attribute 'table'.
-
-Solution: Diagnosed this as an environment issue where the system had an older version of the fpdf library. The Python script was refactored to build the report tables manually using the more fundamental .cell() method, ensuring compatibility.
-
-Oct 7, 2025: Finalization and Alignment with HW1
-
-Reviewed and updated hw2-a.cpp to ensure its core logic was a direct parallelization of the Mv.cpp code from HW1, fulfilling the assignment's starting-point requirement.
-
-Enhanced the makefile by adding experimental build targets (make all-O2, make all-unroll) to easily test the impact of different compiler optimizations, directly addressing the feedback from HW1.
-
-Added a help section to the makefile for improved usability.
-
-Conducted a final review of all components to ensure they meet every requirement in the assignment prompt.
-
-Reflection on AI Tool Usage
-For this assignment, AI tools were integral to the entire development lifecycle, acting as a collaborative partner for coding, debugging, and workflow automation.
-
-What they were useful for:
-
-Rapid Prototyping: The AI was exceptionally effective at generating the initial C++ boilerplate for hw2-a and hw2-b, including argument parsing, matrix initialization, and timing code. It also quickly converted the initial C code to modern C++.
-
-Complex Scripting: The AI wrote the sophisticated run_benchmarks.sh and create_report.py scripts. This was a significant productivity boost, as it handled the complex logic for JSON generation, data parsing, process execution, and PDF creation, which would have been time-consuming to write from scratch.
-
-Platform-Specific Debugging: The AI was invaluable for diagnosing the series of macOS-specific compilation issues. It correctly identified the clang vs. gcc problem and suggested the Homebrew-based solution. When subsequent make errors occurred, it could interpret the cryptic messages and provide the correct fix.
-
-API and Versioning Knowledge: When the fpdf library failed, the AI correctly diagnosed the problem as a likely version incompatibility and provided the alternative, more compatible code using the .cell() method.
-
-Where they fell short:
-
-Environmental Assumptions: The AI's primary weakness was its lack of awareness of the specific target environment (Bridges-2). It initially generated a Python script using a modern, convenient library feature (.table()) that was not available on the older software stack of the target machine. This highlights that the developer's environmental knowledge is crucial for guiding the AI.
-
-Overly Simplistic Initial Solutions: The first version of the makefile's OS detection logic was functional but not robust. It required several iterative debugging cycles, guided by my feedback, to handle edge cases like a missing compiler gracefully.
+Performed a final, complete run of the ./run_benchmarks.sh script on the target system (Bridges-2) to generate the final results and package the submission archive.
