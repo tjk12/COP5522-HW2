@@ -1,177 +1,175 @@
 #!/bin/bash
-# run_benchmarks.sh (v3)
-# This script automates the entire benchmarking process for HW2.
-# It compiles the code with different optimization profiles, runs a
-# comprehensive set of tests for each, and saves all results to a
-# structured JSON file for later analysis.
 
-# --- Configuration ---
+# This script compiles and runs C++ benchmarks, tests multiple optimization
+# profiles, and generates a comprehensive performance report.
+
+# --- Dependency Check ---
+if ! command -v bc &> /dev/null; then
+    echo "Error: 'bc' (a command-line calculator) is not installed." >&2
+    exit 1
+fi
+
+# --- Internal Configuration ---
 RESULTS_FILE="results.json"
-MATRIX_SIZES_GENERAL=(1024 2048 4096 8192)
-MATRIX_SIZE_STRONG=4096
-MATRIX_SIZE_WEAK_BASE=2048
-THREAD_COUNTS=(1 2 4 8 12 16)
-SCHEDULES=("static" "dynamic" "guided")
+# Matrix sizes for general performance and strong scaling sweeps
+SIZES=(1024 2048 4096 8192)
+# Thread counts to test
+THREADS=(1 2 4 8 12 16)
+# Base matrix sizes for the DIFFERENT weak scaling experiments
+WEAK_SCALING_BASE_SIZES=(1024 2048)
 
-# --- NEW: Define Optimization Profiles to Test ---
-# Each key corresponds to a 'make' target (e.g., 'make all-O3')
-declare -A OPTIMIZATION_PROFILES
+# Define compiler optimization profiles to test
+# Format: "key:make_target:human_readable_flags"
 OPTIMIZATION_PROFILES=(
-    ["O3_default"]="-O3 -march=native -mavx2 -mfma"
-    ["O2_optimized"]="-O2 -march=native -mavx2 -mfma"
-    ["O3_unrolled"]="-O3 -march=native -mavx2 -mfma -funroll-loops"
+    "O3_default:all-O3:-O3 -march=native -mavx2 -mfma"
+    "O2_optimized:all-O2:-O2 -march=native -mavx2 -mfma"
+    "O3_unrolled:all-unroll:-O3 -march=native -mavx2 -mfma -funroll-loops"
 )
-MAKE_TARGETS=("all-O3" "all-O2" "all-unroll") # Corresponds to the keys above
 
-# --- Helper Function ---
-# Executes a command and extracts the Gflop/s value from its output
+# --- Helper Functions ---
+# Runs a command, captures the 'Performance' line, and extracts the Gflop/s value
 run_and_get_gflops() {
     local command_output
-    command_output=$(eval "$1" 2>&1)
-    if [[ $? -ne 0 ]]; then
-        echo "error"
-        return
+    command_output=$(eval "$@" 2>&1)
+    if [ $? -eq 0 ]; then
+        echo "$command_output" | grep "Performance" | awk '{print $NF}'
+    else
+        echo "" # Return empty on error
     fi
-    # Use grep and awk for more robust parsing of the floating point number
-    echo "$command_output" | grep "Performance (Gflop/s):" | awk '{print $NF}'
 }
 
 # --- Main Script ---
 echo "--- Starting Comprehensive Benchmark Process ---"
 
-# Initialize JSON structure
+# Initialize JSON file
 echo "{" > "$RESULTS_FILE"
-FIRST_PROFILE=true
 
-# 1. Loop through each optimization profile
-for i in "${!MAKE_TARGETS[@]}"; do
-    PROFILE_KEY=$(echo "${!OPTIMIZATION_PROFILES[@]}" | cut -d' ' -f$((i+1)))
-    MAKE_TARGET=${MAKE_TARGETS[$i]}
+first_profile=true
+for profile_info in "${OPTIMIZATION_PROFILES[@]}"; do
+    # Parse profile info
+    IFS=':' read -r profile_key make_target flags <<< "$profile_info"
 
-    echo -e "\n--------------------------------------------------"
-    echo "--- BENCHMARKING PROFILE: $PROFILE_KEY ---"
+    echo ""
+    echo "--------------------------------------------------"
+    echo "--- BENCHMARKING PROFILE: $profile_key ---"
     echo "--------------------------------------------------"
 
     # Compile the code with the current profile
-    echo "Compiling with 'make $MAKE_TARGET'..."
-    make clean > /dev/null && make "$MAKE_TARGET"
+    echo "Compiling with 'make $make_target'..."
+    make clean > /dev/null && make "$make_target"
     if [ $? -ne 0 ]; then
-        echo "!!! Compilation Failed for profile $PROFILE_KEY. Skipping. !!!"
+        echo "!!! Compilation Failed for profile $profile_key. Skipping. !!!"
         continue
     fi
 
-    if [ "$FIRST_PROFILE" = false ]; then
+    # Add comma separator for JSON entries
+    if [ "$first_profile" = false ]; then
         echo "," >> "$RESULTS_FILE"
     fi
-    FIRST_PROFILE=false
+    first_profile=false
 
-    # Start JSON object for this profile
-    echo "\"$PROFILE_KEY\": {" >> "$RESULTS_FILE"
-    echo "\"compiler_flags\": \"${OPTIMIZATION_PROFILES[$PROFILE_KEY]}\"," >> "$RESULTS_FILE"
+    # --- Start JSON entry for this profile ---
+    echo "  \"$profile_key\": {" >> "$RESULTS_FILE"
+    echo "    \"compiler_flags\": \"$flags\"," >> "$RESULTS_FILE"
+    echo "    \"general_perf\": {" >> "$RESULTS_FILE"
+    echo "      \"hw2_a\": {" >> "$RESULTS_FILE"
 
-    # --- 2. General Performance Sweep ---
-    echo -e "\nRunning General Performance Sweep for '$PROFILE_KEY'..."
-    echo "\"general_perf\": {" >> "$RESULTS_FILE"
-    echo "\"hw2_a\": {" >> "$RESULTS_FILE"
-    FIRST_SIZE=true
-    for N in "${MATRIX_SIZES_GENERAL[@]}"; do
-        if [ "$FIRST_SIZE" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_SIZE=false
-        echo "\"N$N\": {" >> "$RESULTS_FILE"
-        FIRST_THREAD=true
-        for T in "${THREAD_COUNTS[@]}"; do
-            if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-            FIRST_THREAD=false
-            GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-a $N")
-            echo "\"T$T\": \"$GFLOPS\"" >> "$RESULTS_FILE"
+    # 1. General Performance Sweep (Strong Scaling Data Source)
+    echo ""
+    echo "Running General Performance Sweep for '$profile_key'..."
+    first_size=true
+    for N in "${SIZES[@]}"; do
+        if [ "$first_size" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+        first_size=false
+        echo "      \"N$N\": {" >> "$RESULTS_FILE"
+        first_thread=true
+        for T in "${THREADS[@]}"; do
+            gflops=$(OMP_NUM_THREADS=$T run_and_get_gflops ./hw2-a "$N")
+            if [ "$first_thread" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+            echo "        \"T$T\": \"$gflops\"" >> "$RESULTS_FILE"
+            first_thread=false
         done
-        echo "}" >> "$RESULTS_FILE"
+        echo "      }" >> "$RESULTS_FILE"
     done
-    echo "}," >> "$RESULTS_FILE"
-    echo "\"hw2_b\": {" >> "$RESULTS_FILE"
-    FIRST_SIZE=true
-    for N in "${MATRIX_SIZES_GENERAL[@]}"; do
-        if [ "$FIRST_SIZE" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_SIZE=false
-        echo "\"N$N\": {" >> "$RESULTS_FILE"
-        FIRST_SCHEDULE=true
-        for S in "${SCHEDULES[@]}"; do
-            if [ "$FIRST_SCHEDULE" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-            FIRST_SCHEDULE=false
-            echo "\"schedule_$S\": {" >> "$RESULTS_FILE"
-            FIRST_THREAD=true
-            for T in "${THREAD_COUNTS[@]}"; do
-                if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-                FIRST_THREAD=false
-                GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-b $N $S")
-                echo "\"T$T\": \"$GFLOPS\"" >> "$RESULTS_FILE"
+    echo "      }," >> "$RESULTS_FILE" # end hw2_a
+    echo "      \"hw2_b\": {" >> "$RESULTS_FILE"
+    
+    # Test hw2-b with all schedules
+    SCHEDULES=("static" "dynamic" "guided")
+    first_size=true
+    for N in "${SIZES[@]}"; do
+        if [ "$first_size" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+        first_size=false
+        echo "      \"N$N\": {" >> "$RESULTS_FILE"
+        first_sched=true
+        for SCHED in "${SCHEDULES[@]}"; do
+            if [ "$first_sched" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+            first_sched=false
+            echo "        \"schedule_$SCHED\": {" >> "$RESULTS_FILE"
+            first_thread=true
+            for T in "${THREADS[@]}"; do
+                gflops=$(OMP_NUM_THREADS=$T run_and_get_gflops ./hw2-b "$N" "$SCHED")
+                if [ "$first_thread" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+                echo "          \"T$T\": \"$gflops\"" >> "$RESULTS_FILE"
+                first_thread=false
             done
-            echo "}" >> "$RESULTS_FILE"
+            echo "        }" >> "$RESULTS_FILE"
         done
-        echo "}" >> "$RESULTS_FILE"
+        echo "      }" >> "$RESULTS_FILE"
     done
-    echo "}" >> "$RESULTS_FILE"
-    echo "}," >> "$RESULTS_FILE" # End general_perf
+    echo "      }" >> "$RESULTS_FILE" # end hw2_b
+    echo "    }," >> "$RESULTS_FILE" # end general_perf
 
-    # --- 3. Strong Scaling Test ---
-    echo -e "\nRunning Strong Scaling Test (N=$MATRIX_SIZE_STRONG) for '$PROFILE_KEY'..."
-    echo "\"strong_scaling\": {" >> "$RESULTS_FILE"
-    echo "\"hw2_a\": {" >> "$RESULTS_FILE"
-    FIRST_THREAD=true
-    for T in "${THREAD_COUNTS[@]}"; do
-        if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_THREAD=false
-        GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-a $MATRIX_SIZE_STRONG")
-        echo "\"T$T\": \"$GFLOPS\"" >> "$RESULTS_FILE"
+    # 2. Dedicated Weak Scaling Tests
+    echo ""
+    echo "Running Weak Scaling Tests for '$profile_key'..."
+    echo "    \"weak_scaling\": {" >> "$RESULTS_FILE"
+    first_base_size=true
+    for BASE_N in "${WEAK_SCALING_BASE_SIZES[@]}"; do
+        if [ "$first_base_size" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+        first_base_size=false
+        echo "      \"N${BASE_N}\": {" >> "$RESULTS_FILE"
+        echo "        \"hw2_a\": {" >> "$RESULTS_FILE"
+        first_thread=true
+        for T in "${THREADS[@]}"; do
+            N_weak=$(echo "sqrt($T) * $BASE_N" | bc -l | awk '{print int($1+0.5)}')
+            gflops=$(OMP_NUM_THREADS=$T run_and_get_gflops ./hw2-a "$N_weak")
+            if [ "$first_thread" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+            echo "          \"T$T\": {\"N\": \"$N_weak\", \"gflops\": \"$gflops\"}" >> "$RESULTS_FILE"
+            first_thread=false
+        done
+        echo "        }," >> "$RESULTS_FILE" # end hw2_a
+        echo "        \"hw2_b_guided\": {" >> "$RESULTS_FILE"
+        first_thread=true
+        for T in "${THREADS[@]}"; do
+            N_weak=$(echo "sqrt($T * ($BASE_N^2 + $BASE_N) / 2) * sqrt(2)" | bc -l | awk '{print int($1+0.5)}')
+            gflops=$(OMP_NUM_THREADS=$T run_and_get_gflops ./hw2-b "$N_weak" "guided")
+            if [ "$first_thread" = false ]; then echo "," >> "$RESULTS_FILE"; fi
+            echo "          \"T$T\": {\"N\": \"$N_weak\", \"gflops\": \"$gflops\"}" >> "$RESULTS_FILE"
+            first_thread=false
+        done
+        echo "        }" >> "$RESULTS_FILE" # end hw2_b
+        echo "      }" >> "$RESULTS_FILE"
     done
-    echo "}," >> "$RESULTS_FILE"
-    echo "\"hw2_b_guided\": {" >> "$RESULTS_FILE"
-    FIRST_THREAD=true
-    for T in "${THREAD_COUNTS[@]}"; do
-        if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_THREAD=false
-        GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-b $MATRIX_SIZE_STRONG guided")
-        echo "\"T$T\": \"$GFLOPS\"" >> "$RESULTS_FILE"
-    done
-    echo "}" >> "$RESULTS_FILE"
-    echo "}," >> "$RESULTS_FILE" # End strong_scaling
-
-    # --- 4. Weak Scaling Test ---
-    echo -e "\nRunning Weak Scaling Test (Base N=$MATRIX_SIZE_WEAK_BASE) for '$PROFILE_KEY'..."
-    echo "\"weak_scaling\": {" >> "$RESULTS_FILE"
-    echo "\"hw2_a\": {" >> "$RESULTS_FILE"
-    FIRST_THREAD=true
-    for T in "${THREAD_COUNTS[@]}"; do
-        if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_THREAD=false
-        N_WEAK=$(echo "scale=0; sqrt($T) * $MATRIX_SIZE_WEAK_BASE / 1" | bc)
-        GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-a $N_WEAK")
-        echo "\"T$T\": {\"N\": \"$N_WEAK\", \"gflops\": \"$GFLOPS\"}" >> "$RESULTS_FILE"
-    done
-    echo "}," >> "$RESULTS_FILE"
-    echo "\"hw2_b_guided\": {" >> "$RESULTS_FILE"
-    FIRST_THREAD=true
-    for T in "${THREAD_COUNTS[@]}"; do
-        if [ "$FIRST_THREAD" = false ]; then echo "," >> "$RESULTS_FILE"; fi
-        FIRST_THREAD=false
-        N_WEAK=$(echo "scale=0; sqrt($T) * $MATRIX_SIZE_WEAK_BASE / 1" | bc)
-        GFLOPS=$(run_and_get_gflops "OMP_NUM_THREADS=$T ./hw2-b $N_WEAK guided")
-        echo "\"T$T\": {\"N\": \"$N_WEAK\", \"gflops\": \"$GFLOPS\"}" >> "$RESULTS_FILE"
-    done
-    echo "}" >> "$RESULTS_FILE"
-    echo "}" >> "$RESULTS_FILE" # End weak_scaling
-
-    echo "}" >> "$RESULTS_FILE" # End profile object
-
+    echo "    }" >> "$RESULTS_FILE" # end weak_scaling
+    echo "  }" >> "$RESULTS_FILE" # end profile
 done
 
-echo "}" >> "$RESULTS_FILE" # End main JSON object
+# Finalize JSON file
+echo "}" >> "$RESULTS_FILE"
 
-echo -e "\n--------------------------------------------------"
+echo ""
+echo "--------------------------------------------------"
 echo "--- Comprehensive Benchmarking Complete ---"
 echo "All results have been saved to $RESULTS_FILE"
-echo -e "\n--- Automatically Generating PDF Report ---"
-python report.py
+echo ""
 
-echo -e "\n--- Process Finished ---"
+# 3. Automatically generate the final report
+echo "--- Automatically Generating PDF Report ---"
+python3 report.py
+if [ $? -ne 0 ]; then
+    echo "!!! Report Generation Failed. Please check create_report.py and its dependencies. !!!"
+    exit 1
+fi
+echo "--- Process Finished ---"
 
