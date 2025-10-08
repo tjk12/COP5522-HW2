@@ -15,75 +15,62 @@
 #include <chrono>
 #include <cstdlib>
 #include <string>
-#include <cstring>
 #include <omp.h>
-
-using namespace std;
 
 // Helper function to get current time in microseconds
 double microtime() {
-    auto now = chrono::high_resolution_clock::now();
+    auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
-    return chrono::duration_cast<chrono::microseconds>(duration).count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
 }
 
-void mat_vec_mult_triangular(int n, const vector<float>& A, const vector<float>& B, vector<float>& C) {
-    // A temporary vector for each thread to accumulate results, preventing false sharing
-    vector<float> C_local(C.size(), 0.0f);
-
+// Main logic for lower-triangular matrix-vector multiplication
+void mat_vec_mult_triangular(int n, const std::vector<float>& A, const std::vector<float>& B, std::vector<float>& C) {
+    // This pragma parallelizes the outer loop. The schedule is determined at runtime
+    // based on the call to omp_set_schedule() in main(), which allows us to benchmark
+    // different strategies without recompiling.
     #pragma omp parallel for schedule(runtime)
     for (int i = 0; i < n; ++i) {
+        // A local variable for accumulation. Each thread gets its own 'sum'.
+        // This is crucial for correctness and avoids false sharing on the output vector C.
+        float sum = 0.0f;
+        // The inner loop only goes up to 'i', avoiding multiplication by zeros.
         for (int j = 0; j <= i; ++j) {
-            C_local[i] += A[i * n + j] * B[j];
+            sum += A[i * n + j] * B[j];
         }
-    }
-
-    // Reduction: combine the results from local copies into the final vector C
-    // This part is sequential but fast
-    fill(C.begin(), C.end(), 0.0f);
-    for (size_t i = 0; i < C.size(); ++i) {
-        C[i] = C_local[i];
+        C[i] = sum; // Single write to the shared output vector C. No race condition.
     }
 }
 
-
 int main(int argc, char **argv) {
-    int n;
-    string schedule_type;
-
-    // Handle command line arguments to allow for a default schedule
-    if (argc == 2) {
-        n = atoi(argv[1]);
-        schedule_type = "static"; // Default schedule if only size is provided
-    } else if (argc == 3) {
-        n = atoi(argv[1]);
-        schedule_type = argv[2];
-    } else {
-        cerr << "Usage: " << argv[0] << " <matrix_size_n> [schedule]" << endl;
-        cerr << "  [schedule] is optional and defaults to 'static'." << endl;
-        cerr << "  Available schedules: static, dynamic, guided" << endl;
+    if (argc < 2 || argc > 3) {
+        std::cerr << "Usage: " << argv[0] << " <matrix_size_n> [schedule]" << std::endl;
+        std::cerr << "  [schedule] is optional (static, dynamic, guided) and defaults to 'guided'." << std::endl;
         return 1;
     }
-    
+
+    int n = std::atoi(argv[1]);
+    std::string schedule_type = (argc == 3) ? argv[2] : "guided"; // Default to guided
+
     if (n <= 0) {
-        cerr << "Error: Matrix size must be a positive integer." << endl;
+        std::cerr << "Error: Matrix size must be a positive integer." << std::endl;
         return 1;
     }
 
-    // Set the OMP schedule type from the command line argument
+    // Set the OpenMP schedule type based on the command-line argument
     if (schedule_type == "static") {
         omp_set_schedule(omp_sched_static, 0);
     } else if (schedule_type == "dynamic") {
-        omp_set_schedule(omp_sched_dynamic, 0);
+        omp_set_schedule(omp_sched_dynamic, 1); // Use chunk size 1 for fine-grained dynamic
     } else if (schedule_type == "guided") {
         omp_set_schedule(omp_sched_guided, 0);
     } else {
-        cerr << "Error: Invalid schedule type '" << schedule_type << "'." << endl;
+        std::cerr << "Error: Invalid schedule type '" << schedule_type << "'." << std::endl;
         return 1;
     }
 
     // Allocate matrices
-    vector<float> A(n * n, 0.0f), B(n), C(n);
+    std::vector<float> A(n * n, 0.0f), B(n), C(n);
 
     // Initialize as a lower triangular matrix
     for (int i = 0; i < n; ++i) {
@@ -106,17 +93,16 @@ int main(int argc, char **argv) {
 
     // Calculate performance in Gflop/s
     double gflops = 0.0;
-    // FIX: Add a safety check to prevent division by zero
     if (elapsed_time_sec > 0.0) {
-        // Total flops for triangular matrix is n*(n+1)
-        double total_flops = (double)n * (n + 1);
+        // Total flops for triangular matrix: sum of 2*i for i=1..n => n*(n+1)
+        double total_flops = (double)n * (double)(n + 1);
         gflops = total_flops / (elapsed_time_sec * 1e9);
     }
 
-    cout << "Execution Time: " << elapsed_time_us << " us" << endl;
-    cout << "Matrix Size: " << n << "x" << n << ", Schedule: " << schedule_type << endl;
-    cout << "Threads used: " << omp_get_max_threads() << endl;
-    cout << "Performance (Gflop/s): " << gflops << endl;
+    std::cout << "Execution Time: " << elapsed_time_us << " us" << std::endl;
+    std::cout << "Matrix Size: " << n << "x" << n << ", Schedule: " << schedule_type << std::endl;
+    std::cout << "Threads used: " << omp_get_max_threads() << std::endl;
+    std::cout << "Performance (Gflop/s): " << gflops << std::endl;
 
     return 0;
 }

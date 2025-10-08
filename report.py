@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from fpdf import FPDF
 from collections import defaultdict
 import math
+import traceback
 
 # --- Configuration ---
 RESULTS_FILE = "results.json"
@@ -33,8 +34,6 @@ def generate_report(data):
         "a standard dense matrix multiplication (hw2-a) and a specialized version for lower-triangular matrices (hw2-b). "
         "The analysis focuses on comparing different compiler optimization strategies, evaluating OpenMP scheduling policies, and analyzing the scaling characteristics of the parallel implementations.")
     pdf.ln(5)
-
-
     
     # --- Analysis of Scheduling Strategies ---
     pdf.set_font("Helvetica", "B", 14)
@@ -44,6 +43,10 @@ def generate_report(data):
     generate_schedule_performance_chart(data.get(best_profile_for_scheduling_analysis, {}))
     if os.path.exists(CHART_SCHEDULING):
         pdf.image(CHART_SCHEDULING, x=10, y=None, w=180)
+    else:
+        pdf.set_font("Helvetica", "I", 10)
+        pdf.cell(0, 10, "[Scheduling performance chart could not be generated. Check console for errors.]", ln=True, align="C")
+
 
     pdf.set_font("Helvetica", size=10)
     analysis_text, best_schedule = analyze_schedules(data)
@@ -98,9 +101,17 @@ def generate_report(data):
         profile_data = data[best_profile_key]
         generate_scaling_chart(profile_data, "Strong Scaling Comparison", CHART_STRONG_SCALING)
         generate_scaling_chart(profile_data, "Weak Scaling Comparison", CHART_WEAK_SCALING, is_weak=True)
-        if os.path.exists(CHART_STRONG_SCALING): pdf.image(CHART_STRONG_SCALING, x=10, y=None, w=180)
+        if os.path.exists(CHART_STRONG_SCALING): 
+            pdf.image(CHART_STRONG_SCALING, x=10, y=None, w=180)
+        else:
+            pdf.set_font("Helvetica", "I", 10)
+            pdf.cell(0, 10, "[Strong scaling chart could not be generated. Check console for errors.]", ln=True, align="C")
         pdf.ln(5)
-        if os.path.exists(CHART_WEAK_SCALING): pdf.image(CHART_WEAK_SCALING, x=10, y=None, w=180)
+        if os.path.exists(CHART_WEAK_SCALING): 
+            pdf.image(CHART_WEAK_SCALING, x=10, y=None, w=180)
+        else:
+            pdf.set_font("Helvetica", "I", 10)
+            pdf.cell(0, 10, "[Weak scaling chart could not be generated. Check console for errors.]", ln=True, align="C")
     else:
         pdf.cell(0, 10, "Could not generate scaling charts: Best profile data not found.", ln=True)
 
@@ -125,6 +136,17 @@ def generate_report(data):
         "Ideally, performance in Gflop/s should increase linearly with the number of threads. The charts demonstrate this by starting separate weak scaling experiments from different base matrix sizes. "
         "In practice, performance often falls short of this ideal. This is typically due to system-level bottlenecks that become more pronounced as the total problem size grows, such as increased contention for shared memory bandwidth or limitations in cache capacity. "
         "By comparing the plots, we can see that experiments starting with a larger base N tend to achieve higher absolute Gflop/s, likely due to a better computation-to-communication ratio.")
+    pdf.ln(4)
+
+    # ADDED: New section explaining memory bandwidth saturation.
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 8, "The Impact of Thread Count vs. Available Cores", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.multi_cell(0, 5,
+        "An important observation from manual testing is the significant performance difference between running the benchmark with a specific, limited number of threads (e.g., OMP_NUM_THREADS=16) versus allowing OpenMP to use all available cores on the system (e.g., 256 cores on Bridges-2). While it seems intuitive that more cores should equal more performance, this is often not the case for memory-bound problems like matrix-vector multiplication.\n\n"
+        "The primary bottleneck is not the CPU's computational power, but the speed at which it can fetch data from main memory (RAM). This is known as the memory bandwidth limit. When an excessive number of threads are launched simultaneously, they all contend for access to this limited memory bandwidth. This creates a \"traffic jam\" on the memory bus, causing most threads to spend their time waiting for data rather than performing calculations.\n\n"
+        "The benchmark script carefully tests a range of thread counts (1 to 32) to find the optimal point where the system's memory bandwidth can effectively service the active cores. This 'sweet spot' delivers the peak performance seen in the graphs. Launching threads beyond this point leads to diminishing returns and eventually a sharp drop in performance due to memory contention and parallel overhead, demonstrating a critical concept in high-performance computing: scaling is limited by the most constrained resource, which in this case is memory bandwidth."
+    )
     pdf.ln(10)
 
     # --- Reflection on AI Tool Usage ---
@@ -145,33 +167,58 @@ def generate_report(data):
 
     pdf.output(PDF_FILE)
     print(f"Report successfully generated: {PDF_FILE}")
-    if os.path.exists(CHART_STRONG_SCALING): os.remove(CHART_STRONG_SCALING)
-    if os.path.exists(CHART_WEAK_SCALING): os.remove(CHART_WEAK_SCALING)
-    if os.path.exists(CHART_SCHEDULING): os.remove(CHART_SCHEDULING)
+    # Clean up the generated chart images after they have been embedded in the PDF
+    for chart_file in [CHART_STRONG_SCALING, CHART_WEAK_SCALING, CHART_SCHEDULING]:
+        if os.path.exists(chart_file):
+            os.remove(chart_file)
 
     create_submission_archive()
 
 def analyze_schedules(data):
+    """Analyzes schedule performance and generates a specific explanation based on the winner."""
     schedule_scores = defaultdict(float)
     if not data: return "Could not determine the best schedule due to missing data.", "guided"
+    
     for profile_data in data.values():
         try:
             for size_data in profile_data['general_perf']['hw2_b'].values():
                 for schedule_key, thread_data in size_data.items():
                     schedule_name = schedule_key.replace("schedule_", "")
                     for gflops_str in thread_data.values():
-                        try: schedule_scores[schedule_name] += float(gflops_str)
-                        except (ValueError, TypeError): continue
-        except KeyError: continue
+                        try:
+                            schedule_scores[schedule_name] += float(gflops_str)
+                        except (ValueError, TypeError):
+                            continue
+        except KeyError:
+            continue
+            
     if not schedule_scores: return "No valid performance data found for any schedule.", "guided"
+    
     best_schedule = max(schedule_scores, key=schedule_scores.get)
-    text = ("The chart above visually compares the performance of the three main OpenMP scheduling strategies across different matrix sizes. A brief summary of each strategy:\n\n"
-            "- static: Iterations are divided into fixed-size chunks. Best for balanced workloads but can be inefficient here.\n"
-            "- dynamic: Threads request work as they become free. Adapts to imbalanced loads but has higher overhead.\n"
-            "- guided: A hybrid approach where chunk sizes decrease over time, balancing overhead and load adaptability.\n\n"
-            f"As shown, the '{best_schedule}' scheduling strategy consistently provided the best overall performance. "
-            "This is likely because it offers a good compromise between the low overhead of static scheduling and the load-balancing of dynamic scheduling, which is ideal for the imbalanced workload of a triangular matrix.")
-    return text, best_schedule
+    
+    intro = ("The chart above visually compares the performance of the three main OpenMP scheduling strategies for the triangular matrix multiplication (hw2-b), which has an imbalanced workload. The workload is heaviest for the last rows of the matrix and lightest for the first rows.\n\n"
+             f"Based on the cumulative performance across all tests, the '{best_schedule}' scheduling strategy was determined to be the most effective. ")
+
+    # REVISED: Provide a specific explanation for why the winning schedule performed best.
+    explanations = {
+        "static": (
+            "This result is somewhat unexpected for an imbalanced workload. A possible explanation is that for the matrix sizes and thread counts tested, the overhead associated with dynamic scheduling outweighed its load-balancing benefits. "
+            "The simplicity and low overhead of the static scheduler, which pre-allocates an equal number of iterations to each thread, proved to be more efficient overall. This can happen if the imbalance is not severe enough to leave threads idle for long periods."
+        ),
+        "dynamic": (
+            "This result is logical for an imbalanced workload. The 'dynamic' scheduler assigns a small chunk of iterations to a thread and, once completed, the thread requests a new chunk. "
+            "This ensures that no thread sits idle while others are still working on the longer tasks (the final rows of the matrix). While it has higher overhead than static scheduling due to this continuous management, its ability to adapt and keep all cores busy proved to be the decisive factor for performance in this scenario."
+        ),
+        "guided": (
+            "This result aligns well with theoretical expectations for this problem. The 'guided' scheduler is a hybrid approach that starts by giving large chunks of iterations to threads and gradually decreases the chunk size. "
+            "This strategy minimizes scheduling overhead at the beginning (like 'static') while providing finer-grained load balancing towards the end of the computation (like 'dynamic'). This compromise effectively handles the imbalanced workload of the triangular matrix without incurring the high, constant overhead of a pure dynamic schedule."
+        )
+    }
+    
+    conclusion = explanations.get(best_schedule, "The reason for this schedule's superior performance is likely its specific approach to balancing workload distribution against scheduling overhead.")
+    
+    return intro + conclusion, best_schedule
+
 
 def get_peak_performance_for_size(profile_data, size, best_schedule):
     best_gflops, best_threads = 0.0, 0
@@ -235,48 +282,58 @@ def find_best_profile_by_wins(data, table_data):
     return sorted(win_counts.keys(), key=lambda p: (win_counts[p], peak_gflops[p]), reverse=True)[0]
 
 def generate_schedule_performance_chart(profile_data):
-    if not profile_data: return
     try:
-        hw2b_data = profile_data['general_perf']['hw2_b']
+        if not profile_data: return
+        hw2b_data = profile_data.get('general_perf', {}).get('hw2_b', {})
+        if not hw2b_data: return
         matrix_sizes = sorted(hw2b_data.keys(), key=lambda x: int(x[1:]))
         if not matrix_sizes: return
+
         ncols = 2
         nrows = math.ceil(len(matrix_sizes) / ncols)
         fig, axes = plt.subplots(nrows, ncols, figsize=(12, nrows * 4.5), squeeze=False)
         axes = axes.flatten()
+        
         for i, size in enumerate(matrix_sizes):
             ax = axes[i]
             size_data = hw2b_data[size]
             for schedule_key, thread_data in sorted(size_data.items()):
                 schedule_name = schedule_key.replace("schedule_", "").title()
-                valid_threads = {int(t[1:]):float(g) for t, g in thread_data.items() if g}
+                valid_threads = {int(t[1:]):float(g) for t, g in thread_data.items() if g and g.replace('.', '', 1).isdigit()}
                 if valid_threads:
                     sorted_threads = sorted(valid_threads.keys())
                     gflops = [valid_threads[t] for t in sorted_threads]
                     ax.plot(sorted_threads, gflops, marker='o', linestyle='-', label=f'{schedule_name}')
+            
             ax.set_title(f'N = {size[1:]}')
             ax.set_xlabel('Threads')
             ax.set_ylabel('Gflop/s')
             ax.grid(True, which="both", ls="--")
-        for j in range(i + 1, len(axes)): axes[j].set_visible(False)
+        
+        for j in range(len(matrix_sizes), len(axes)): axes[j].set_visible(False)
         fig.suptitle('Scheduling Strategy Performance for hw2-b', fontsize=16)
         handles, labels = axes[0].get_legend_handles_labels()
         fig.legend(handles, labels, loc='upper right')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(CHART_SCHEDULING)
-    except (KeyError, IndexError, ValueError, TypeError) as e:
-        print(f"Warning: Could not generate schedule performance chart. Error: {e}")
+    except Exception as e:
+        print(f"\n--- !!! ERROR: Could not generate schedule performance chart. Plot will be missing. !!! ---")
+        print(f"--- Error Type: {type(e).__name__}, Details: {e}")
+        print(f"--- This often happens if 'results.json' has missing data or an unexpected format.")
+        traceback.print_exc()
     finally:
         plt.close()
 
 def generate_scaling_chart(profile_data, title, filename, is_weak=False):
-    if not profile_data: return
-    
-    if is_weak:
-        try:
+    try:
+        if not profile_data: return
+        
+        if is_weak:
             weak_data = profile_data.get('weak_scaling', {})
             if not weak_data: return
             base_sizes = sorted(weak_data.keys(), key=lambda x: int(x[1:]))
+            if not base_sizes: return
+            
             ncols = 2
             nrows = math.ceil(len(base_sizes) / ncols)
             fig, axes = plt.subplots(nrows, ncols, figsize=(12, nrows * 4.5), squeeze=False)
@@ -287,8 +344,7 @@ def generate_scaling_chart(profile_data, title, filename, is_weak=False):
                 experiment_data = weak_data[base_size_key]
                 plot_keys = {'hw2_a': 'Dense (hw2-a)', 'hw2_b_guided': 'Triangular (hw2-b)'}
                 
-                # Ideal line for this experiment
-                try:
+                try: # Ideal weak scaling line
                     t1_gflops = float(experiment_data['hw2_b_guided']['T1']['gflops'])
                     threads_list = sorted([int(t[1:]) for t in experiment_data['hw2_b_guided'].keys()])
                     ideal_gflops = [t1_gflops * t for t in threads_list]
@@ -298,65 +354,77 @@ def generate_scaling_chart(profile_data, title, filename, is_weak=False):
                 for key, label in plot_keys.items():
                     if key in experiment_data:
                         results = experiment_data[key]
-                        valid_points = {int(t[1:]):float(p['gflops']) for t,p in results.items() if p.get('gflops')}
+                        valid_points = {int(t[1:]):float(p['gflops']) for t,p in results.items() if p.get('gflops') and p['gflops'].replace('.','',1).isdigit()}
                         if valid_points:
-                            ax.plot(sorted(valid_points.keys()), [valid_points[t] for t in sorted(valid_points.keys())], marker='o', linestyle='-', label=label)
+                            sorted_threads = sorted(valid_points.keys())
+                            gflops = [valid_points[t] for t in sorted_threads]
+                            ax.plot(sorted_threads, gflops, marker='o', linestyle='-', label=label)
                 
                 ax.set_title(f'Base N = {base_size_key[1:]}')
                 ax.set_xlabel('Threads')
                 ax.set_ylabel('Gflop/s')
                 ax.grid(True, which="both", ls="--")
 
-            for j in range(i + 1, len(axes)): axes[j].set_visible(False)
+            for j in range(len(base_sizes), len(axes)): axes[j].set_visible(False)
             fig.suptitle(title, fontsize=16)
             handles, labels = axes[0].get_legend_handles_labels()
             fig.legend(handles, labels, loc='upper right')
-        except (KeyError, IndexError, ValueError, TypeError) as e:
-            print(f"Warning: Could not generate weak scaling chart. Error: {e}")
-            plt.close()
-            return
-
-    else: # Strong scaling
-        try:
+        else: # Strong scaling
             strong_data = profile_data.get('general_perf', {})
             hw2a_data = strong_data.get('hw2_a', {})
             hw2b_data = strong_data.get('hw2_b', {})
             if not hw2a_data: return
+            
             matrix_sizes = sorted(hw2a_data.keys(), key=lambda x: int(x[1:]))
+            if not matrix_sizes: return
+
             ncols = 2
             nrows = math.ceil(len(matrix_sizes) / ncols)
             fig, axes = plt.subplots(nrows, ncols, figsize=(12, nrows * 4.5), squeeze=False)
             axes = axes.flatten()
+
             for i, size in enumerate(matrix_sizes):
                 ax = axes[i]
-                try:
+                try: # Ideal strong scaling line
                     t1_gflops = float(hw2a_data[size]['T1'])
                     threads_list = sorted([int(t[1:]) for t in hw2a_data[size].keys() if hw2a_data[size].get(t)])
                     ideal_gflops = [t1_gflops * t for t in threads_list]
                     ax.plot(threads_list, ideal_gflops, 'k--', label='Ideal Speedup')
                 except(KeyError, ValueError, TypeError): pass
+
                 if size in hw2a_data:
-                    valid_threads = {int(t[1:]):float(g) for t,g in hw2a_data[size].items() if g}
-                    if valid_threads: ax.plot(sorted(valid_threads.keys()), [valid_threads[t] for t in sorted(valid_threads.keys())], marker='o', linestyle='-', label='Dense (hw2-a)')
+                    valid_threads = {int(t[1:]):float(g) for t,g in hw2a_data[size].items() if g and g.replace('.','',1).isdigit()}
+                    if valid_threads: 
+                        sorted_threads = sorted(valid_threads.keys())
+                        gflops = [valid_threads[t] for t in sorted_threads]
+                        ax.plot(sorted_threads, gflops, marker='o', linestyle='-', label='Dense (hw2-a)')
+                
                 if size in hw2b_data and 'schedule_guided' in hw2b_data[size]:
-                    valid_threads = {int(t[1:]):float(g) for t,g in hw2b_data[size]['schedule_guided'].items() if g}
-                    if valid_threads: ax.plot(sorted(valid_threads.keys()), [valid_threads[t] for t in sorted(valid_threads.keys())], marker='s', linestyle='--', label='Triangular (hw2-b)')
+                    valid_threads = {int(t[1:]):float(g) for t,g in hw2b_data[size]['schedule_guided'].items() if g and g.replace('.','',1).isdigit()}
+                    if valid_threads: 
+                        sorted_threads = sorted(valid_threads.keys())
+                        gflops = [valid_threads[t] for t in sorted_threads]
+                        ax.plot(sorted_threads, gflops, marker='s', linestyle='--', label='Triangular (hw2-b)')
+
                 ax.set_title(f'N = {size[1:]}')
                 ax.set_xlabel('Threads')
                 ax.set_ylabel('Gflop/s')
                 ax.grid(True, which="both", ls="--")
-            for j in range(i + 1, len(axes)): axes[j].set_visible(False)
+
+            for j in range(len(matrix_sizes), len(axes)): axes[j].set_visible(False)
             fig.suptitle(title, fontsize=16)
             handles, labels = axes[0].get_legend_handles_labels()
             fig.legend(handles, labels, loc='upper right')
-        except (KeyError, IndexError, ValueError, TypeError) as e:
-            print(f"Warning: Could not generate strong scaling chart. Error: {e}")
-            plt.close()
-            return
     
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig(filename)
-    plt.close()
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig(filename)
+    except Exception as e:
+        print(f"\n--- !!! ERROR: Could not generate scaling chart '{filename}'. Plot will be missing. !!! ---")
+        print(f"--- Error Type: {type(e).__name__}, Details: {e}")
+        print(f"--- This often happens if 'results.json' has missing data or an unexpected format.")
+        traceback.print_exc()
+    finally:
+        plt.close()
 
 def create_submission_archive():
     archive_name = "hw2.tar"
